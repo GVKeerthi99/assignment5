@@ -90,23 +90,37 @@ def viz_seg (verts, labels, path, args):
 
 def viz_cloud(
     src_cloud,
-    src_path = "submissions/source_cloud.gif", 
-    num_views = 30, 
-    radius = 0.02):
+    src_path="submissions/source_cloud.gif",
+    num_views=30,
+    radius=0.02
+):
+    if src_cloud.numel() == 0:
+        print("Empty cloud, skipping visualization.")
+        return
 
     dist = 3
     elev = 0
-    azim = [180 - 12*i for i in range(num_views)]
+    azim = [180 - 12 * i for i in range(num_views)]
     device = src_cloud.device
+
+    # Camera transform
     R, T = pytorch3d.renderer.cameras.look_at_view_transform(dist=dist, elev=elev, azim=azim, device=device)
     c = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, fov=60, device=device)
+
+    # Renderer
     renderer = get_points_renderer(device=src_cloud.device, radius=radius)
 
+    # Normalize cloud to 0-1 range for coloring
     rgb = (src_cloud - src_cloud.min()) / (src_cloud.max() - src_cloud.min())
     src_cloud = pytorch3d.structures.Pointclouds(points=src_cloud, features=rgb).to(src_cloud.device)
 
+    # Render multiple views
     my_images = renderer(src_cloud.extend(num_views), cameras=c)
     my_images = my_images.cpu().detach().numpy()
+
+    # --- FIX: Convert to uint8 for ImageIO ---
+    # Clip values to [0,1] and scale to [0,255]
+    my_images = (my_images.clip(0, 1) * 255).astype('uint8')
+
+    # Save as GIF
     imageio.mimsave(src_path, my_images, fps=15)
-    
-    return
