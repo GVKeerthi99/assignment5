@@ -120,6 +120,7 @@ if __name__ == '__main__':
             test_label = test_labels[i]
             pred_label = pred_labels[i]
             test_accuracy = pred_label.eq(test_label.data).cpu().sum().item() / (test_label.reshape((-1,1)).size()[0])
+            viz_seg(data, test_label, "{}/seg_gt_{}_{}.gif".format(args.output_dir, args.exp_name, i), args)
             viz_seg(data, pred_label, "{}/seg_pred_{}_{}.gif".format(args.output_dir, args.exp_name, i), args)
             accuracies.append(test_accuracy)
         print("Accuracies of examples: ", accuracies)
