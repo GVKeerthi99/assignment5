@@ -37,6 +37,8 @@ def create_parser():
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--num_success', type=int, default=6, help='Number of successful predictions to visualize')
     parser.add_argument('--num_failure', type=int, default=2, help='Number of failed predictions to visualize')
+    
+    parser.add_argument('--fixed_indices', action='store_true', help='Use fixed success indices: 562,397,308,434,490,413')
 
     return parser
 
@@ -95,54 +97,103 @@ if __name__ == '__main__':
     total_test_accuracy = pred_labels.eq(test_labels.data).cpu().sum().item() / (test_labels.reshape((-1,1)).size()[0])
     
     if args.indices == None: 
-        # FIXED: Collect all success and failure cases first
-        success_cases = []
-        failure_cases = []
-        
-        for i, items in enumerate(zip(test_data, test_labels, pred_labels)):
-            data, test_label, pred_label = items
-            test_accuracy = pred_label.eq(test_label.data).cpu().sum().item() / (test_label.reshape((-1,1)).size()[0])
+        # FIXED: Use hardcoded indices if --fixed_indices flag is set
+        if args.fixed_indices:
+            # Hardcoded success indices
+            fixed_success_indices = [562, 397, 308, 434, 490, 413]
             
-            if test_accuracy > args.s_thresh:
-                success_cases.append((i, test_accuracy, data, test_label, pred_label))
-            elif test_accuracy < args.f_thresh:
-                failure_cases.append((i, test_accuracy, data, test_label, pred_label))
-        
-        # FIXED: Sort by accuracy for consistency and take fixed number
-        success_cases.sort(key=lambda x: x[1], reverse=True)  # Best first
-        failure_cases.sort(key=lambda x: x[1])  # Worst first
-        
-        # Select fixed number of successes and failures
-        selected_successes = success_cases[:args.num_success]
-        selected_failures = failure_cases[:args.num_failure]
-        
-        s_class = []
-        s_ind = []
-        f_class = []
-        f_ind = []
-        
-        # Visualize successes
-        print(f"Visualizing {len(selected_successes)} successful predictions:")
-        for idx, (i, test_accuracy, data, test_label, pred_label) in enumerate(selected_successes):
-            viz_seg(data, test_label, "{}/seg_s_gt_{}.gif".format(args.output_dir, idx), args)
-            viz_seg(data, pred_label, "{}/seg_s_pred_{}.gif".format(args.output_dir, idx), args)
-            s_ind.append(i)
-            s_class.append(test_accuracy)
-            print(f"  Success {idx}: Index {i}, Accuracy: {test_accuracy:.4f}")
-        
-        # Visualize failures
-        print(f"\nVisualizing {len(selected_failures)} failed predictions:")
-        for idx, (i, test_accuracy, data, test_label, pred_label) in enumerate(selected_failures):
-            viz_seg(data, test_label, "{}/seg_f_gt_{}.gif".format(args.output_dir, idx), args)
-            viz_seg(data, pred_label, "{}/seg_f_pred_{}.gif".format(args.output_dir, idx), args)
-            f_ind.append(i)
-            f_class.append(test_accuracy)
-            print(f"  Failure {idx}: Index {i}, Accuracy: {test_accuracy:.4f}")
-        
-        print("\nAccuracies of success classes: ", s_class)
-        print("Accuracies of failure classes: ", f_class)
-        print("S indices: ", s_ind)
-        print("F indices: ", f_ind)
+            s_class = []
+            s_ind = []
+            
+            print(f"Using fixed success indices: {fixed_success_indices}")
+            for idx, i in enumerate(fixed_success_indices):
+                data = test_data[i]
+                test_label = test_labels[i]
+                pred_label = pred_labels[i]
+                test_accuracy = pred_label.eq(test_label.data).cpu().sum().item() / (test_label.reshape((-1,1)).size()[0])
+                
+                viz_seg(data, test_label, "{}/seg_s_gt_{}.gif".format(args.output_dir, idx), args)
+                viz_seg(data, pred_label, "{}/seg_s_pred_{}.gif".format(args.output_dir, idx), args)
+                s_ind.append(i)
+                s_class.append(test_accuracy)
+                print(f"  Success {idx}: Index {i}, Accuracy: {test_accuracy:.4f}")
+            
+            # Still collect failures automatically
+            failure_cases = []
+            for i, items in enumerate(zip(test_data, test_labels, pred_labels)):
+                data, test_label, pred_label = items
+                test_accuracy = pred_label.eq(test_label.data).cpu().sum().item() / (test_label.reshape((-1,1)).size()[0])
+                
+                if test_accuracy < args.f_thresh:
+                    failure_cases.append((i, test_accuracy, data, test_label, pred_label))
+            
+            failure_cases.sort(key=lambda x: x[1])  # Worst first
+            selected_failures = failure_cases[:args.num_failure]
+            
+            f_class = []
+            f_ind = []
+            
+            print(f"\nVisualizing {len(selected_failures)} failed predictions:")
+            for idx, (i, test_accuracy, data, test_label, pred_label) in enumerate(selected_failures):
+                viz_seg(data, test_label, "{}/seg_f_gt_{}.gif".format(args.output_dir, idx), args)
+                viz_seg(data, pred_label, "{}/seg_f_pred_{}.gif".format(args.output_dir, idx), args)
+                f_ind.append(i)
+                f_class.append(test_accuracy)
+                print(f"  Failure {idx}: Index {i}, Accuracy: {test_accuracy:.4f}")
+            
+            print("\nAccuracies of success classes: ", s_class)
+            print("Accuracies of failure classes: ", f_class)
+            print("S indices: ", s_ind)
+            print("F indices: ", f_ind)
+        else:
+            # Original automatic selection logic
+            success_cases = []
+            failure_cases = []
+            
+            for i, items in enumerate(zip(test_data, test_labels, pred_labels)):
+                data, test_label, pred_label = items
+                test_accuracy = pred_label.eq(test_label.data).cpu().sum().item() / (test_label.reshape((-1,1)).size()[0])
+                
+                if test_accuracy > args.s_thresh:
+                    success_cases.append((i, test_accuracy, data, test_label, pred_label))
+                elif test_accuracy < args.f_thresh:
+                    failure_cases.append((i, test_accuracy, data, test_label, pred_label))
+            
+            # FIXED: Sort by accuracy for consistency and take fixed number
+            success_cases.sort(key=lambda x: x[1], reverse=True)  # Best first
+            failure_cases.sort(key=lambda x: x[1])  # Worst first
+            
+            # Select fixed number of successes and failures
+            selected_successes = success_cases[:args.num_success]
+            selected_failures = failure_cases[:args.num_failure]
+            
+            s_class = []
+            s_ind = []
+            f_class = []
+            f_ind = []
+            
+            # Visualize successes
+            print(f"Visualizing {len(selected_successes)} successful predictions:")
+            for idx, (i, test_accuracy, data, test_label, pred_label) in enumerate(selected_successes):
+                viz_seg(data, test_label, "{}/seg_s_gt_{}.gif".format(args.output_dir, idx), args)
+                viz_seg(data, pred_label, "{}/seg_s_pred_{}.gif".format(args.output_dir, idx), args)
+                s_ind.append(i)
+                s_class.append(test_accuracy)
+                print(f"  Success {idx}: Index {i}, Accuracy: {test_accuracy:.4f}")
+            
+            # Visualize failures
+            print(f"\nVisualizing {len(selected_failures)} failed predictions:")
+            for idx, (i, test_accuracy, data, test_label, pred_label) in enumerate(selected_failures):
+                viz_seg(data, test_label, "{}/seg_f_gt_{}.gif".format(args.output_dir, idx), args)
+                viz_seg(data, pred_label, "{}/seg_f_pred_{}.gif".format(args.output_dir, idx), args)
+                f_ind.append(i)
+                f_class.append(test_accuracy)
+                print(f"  Failure {idx}: Index {i}, Accuracy: {test_accuracy:.4f}")
+            
+            print("\nAccuracies of success classes: ", s_class)
+            print("Accuracies of failure classes: ", f_class)
+            print("S indices: ", s_ind)
+            print("F indices: ", f_ind)
     else:
         args.indices = args.indices.split(',') 
         accuracies = []
