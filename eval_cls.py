@@ -31,8 +31,10 @@ def create_parser():
     parser.add_argument('--rotate', type=float, default=None, help='Rotates input about x axis by value if given')
 
     parser.add_argument('--transform', action='store_true', help='Use flag if evaluating transform model')
-
-
+    
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    parser.add_argument('--num_success', type=int, default=6, help='Number of successful predictions to visualize')
+    parser.add_argument('--num_failure', type=int, default=2, help='Number of failed predictions to visualize')
 
     return parser
 
@@ -53,7 +55,6 @@ if __name__ == '__main__':
         model_path = './checkpoints/cls/{}.pt'.format(args.load_checkpoint)
     
     # Load Model Checkpoint
-    
     with open(model_path, 'rb') as f:
         state_dict = torch.load(f, map_location=args.device)
         model.load_state_dict(state_dict)
@@ -61,8 +62,12 @@ if __name__ == '__main__':
     model.to(args.device)
     print ("successfully loaded checkpoint from {}".format(model_path))
 
+    # FIXED: Set random seed for reproducibility
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    
     # Sample Points per Object
-    ind = np.random.choice(10000,args.num_points, replace=False)
+    ind = np.random.choice(10000, args.num_points, replace=False)
     test_data = torch.from_numpy((np.load(args.test_data))[:,ind,:]).to(args.device)
     test_labels = torch.from_numpy(np.load(args.test_label)).to(args.device)
     torch.cuda.empty_cache()
@@ -79,7 +84,6 @@ if __name__ == '__main__':
     test_accuracy = 0
     pred_labels = []
 
-
     for data, label in zip(data_loader, label_loader):
         pred_label =  model(data)
         pred_label = torch.argmax(pred_label, 1)
@@ -88,25 +92,70 @@ if __name__ == '__main__':
     # Compute Accuracy
     pred_labels = torch.cat(pred_labels)
     test_accuracy = pred_labels.eq(test_labels.data).cpu().sum().item() / (test_labels.size()[0])
+    
     if args.indices == None: 
-        s_class = []
-        s_ind = []
-        f_class = []
-        f_ind = []
+        # FIXED: Collect indices for each class separately
+        success_indices_by_class = {0: [], 1: [], 2: []}  # chair, vase, lamp
+        failure_indices_by_class = {0: [], 1: [], 2: []}
+        
+        # First pass: collect all success and failure indices by class
         for i, items in enumerate(zip(test_data, test_labels, pred_labels)):
-            cloud, test_label, label = items
-            cloud = cloud.unsqueeze(0)
-            if test_label==label and test_label not in s_class:
-                src_path  = "{}/cls_s_{}_{}.gif".format(args.output_dir, int(test_label), label)
-                viz_cloud(cloud, src_path = src_path)
-                s_ind.append(i)
-                s_class.append(test_label)
-            if test_label!=label and test_label not in f_class:
-                src_path  = "{}/cls_f_{}_{}.gif".format(args.output_dir, int(test_label), label)
-                viz_cloud(cloud, src_path = src_path)
-                f_ind.append(i)
-                f_class.append(test_label)
-        print("S indices: ", s_ind)
+            cloud, test_label, pred_label = items
+            class_id = int(test_label)
+            
+            if test_label == pred_label:
+                success_indices_by_class[class_id].append(i)
+            else:
+                failure_indices_by_class[class_id].append(i)
+        
+        # FIXED: Select fixed number of successes per class (2 each = 6 total)
+        s_ind = []
+        s_class = []
+        success_per_class = args.num_success // 3  # Divide equally among 3 classes
+        
+        for class_id in [0, 1, 2]:
+            # Take first N successes for this class (consistent across runs)
+            selected = success_indices_by_class[class_id][:success_per_class]
+            for idx in selected:
+                s_ind.append(idx)
+                s_class.append(class_id)
+        
+        # FIXED: Select fixed number of failures (distributed across classes)
+        f_ind = []
+        f_class = []
+        failures_collected = 0
+        
+        for class_id in [0, 1, 2]:
+            if failures_collected >= args.num_failure:
+                break
+            # Take first available failure for this class
+            if len(failure_indices_by_class[class_id]) > 0:
+                idx = failure_indices_by_class[class_id][0]
+                f_ind.append(idx)
+                f_class.append(class_id)
+                failures_collected += 1
+        
+        # Visualize successes
+        print(f"Visualizing {len(s_ind)} successful predictions:")
+        for i, (idx, class_id) in enumerate(zip(s_ind, s_class)):
+            cloud = test_data[idx].unsqueeze(0)
+            test_label = test_labels[idx]
+            pred_label = pred_labels[idx]
+            src_path = "{}/cls_s_{}_{}_{}.gif".format(args.output_dir, i, int(test_label), pred_label)
+            viz_cloud(cloud, src_path=src_path)
+            print(f"  Success {i}: Index {idx}, True label: {int(test_label)}, Pred: {int(pred_label)}")
+        
+        # Visualize failures
+        print(f"\nVisualizing {len(f_ind)} failed predictions:")
+        for i, (idx, class_id) in enumerate(zip(f_ind, f_class)):
+            cloud = test_data[idx].unsqueeze(0)
+            test_label = test_labels[idx]
+            pred_label = pred_labels[idx]
+            src_path = "{}/cls_f_{}_{}_{}.gif".format(args.output_dir, i, int(test_label), pred_label)
+            viz_cloud(cloud, src_path=src_path)
+            print(f"  Failure {i}: Index {idx}, True label: {int(test_label)}, Pred: {int(pred_label)}")
+        
+        print("\nS indices: ", s_ind)
         print("F indices: ", f_ind)
     else:
         args.indices = args.indices.split(',') 
@@ -115,8 +164,7 @@ if __name__ == '__main__':
             cloud = test_data[i].unsqueeze(0)
             test_label = test_labels[i] 
             pred_label = pred_labels[i]
-            src_path  = "{}/cls_{}_{}_{}.gif".format(args.output_dir, args.exp_name, int(test_label), pred_label)
-            viz_cloud(cloud, src_path = src_path)
+            src_path = "{}/cls_{}_{}_{}.gif".format(args.output_dir, args.exp_name, int(test_label), pred_label)
+            viz_cloud(cloud, src_path=src_path)
 
-    print ("test accuracy: {}".format(test_accuracy))
-
+    print("\nTest accuracy: {}".format(test_accuracy))
