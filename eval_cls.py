@@ -34,7 +34,9 @@ def create_parser():
     
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--num_success', type=int, default=6, help='Number of successful predictions to visualize')
-    parser.add_argument('--num_failure', type=int, default=2, help='Number of failed predictions to visualize')
+    parser.add_argument('--num_failure', type=int, default=0, help='Number of failed predictions to visualize')
+    
+    parser.add_argument('--fixed_indices', action='store_true', help='Use fixed success indices: 562,397,308,434,490,413')
 
     return parser
 
@@ -93,70 +95,118 @@ if __name__ == '__main__':
     pred_labels = torch.cat(pred_labels)
     test_accuracy = pred_labels.eq(test_labels.data).cpu().sum().item() / (test_labels.size()[0])
     
-    if args.indices == None: 
-        # FIXED: Collect indices for each class separately
-        success_indices_by_class = {0: [], 1: [], 2: []}  # chair, vase, lamp
-        failure_indices_by_class = {0: [], 1: [], 2: []}
-        
-        # First pass: collect all success and failure indices by class
-        for i, items in enumerate(zip(test_data, test_labels, pred_labels)):
-            cloud, test_label, pred_label = items
-            class_id = int(test_label)
+    if args.indices == None:
+        # FIXED: Use hardcoded indices if --fixed_indices flag is set
+        if args.fixed_indices:
+            # Hardcoded success indices (same as segmentation)
+            fixed_success_indices = [562, 397, 308, 434, 490, 413]
             
-            if test_label == pred_label:
-                success_indices_by_class[class_id].append(i)
+            s_ind = []
+            
+            print(f"Using fixed success indices: {fixed_success_indices}")
+            print(f"Visualizing {len(fixed_success_indices)} predictions:")
+            for idx, i in enumerate(fixed_success_indices):
+                cloud = test_data[i].unsqueeze(0)
+                test_label = test_labels[i]
+                pred_label = pred_labels[i]
+                src_path = "{}/cls_s_{}_{}_{}.gif".format(args.output_dir, idx, int(test_label), pred_label)
+                viz_cloud(cloud, src_path=src_path)
+                s_ind.append(i)
+                print(f"  Success {idx}: Index {i}, True label: {int(test_label)}, Pred: {int(pred_label)}")
+            
+            # Still collect failures automatically if num_failure > 0
+            if args.num_failure > 0:
+                failure_cases = []
+                for i, items in enumerate(zip(test_data, test_labels, pred_labels)):
+                    cloud, test_label, pred_label = items
+                    
+                    if test_label != pred_label:
+                        failure_cases.append((i, cloud, test_label, pred_label))
+                
+                # Take first N failures
+                selected_failures = failure_cases[:args.num_failure]
+                
+                f_ind = []
+                
+                print(f"\nVisualizing {len(selected_failures)} failed predictions:")
+                for idx, (i, cloud, test_label, pred_label) in enumerate(selected_failures):
+                    cloud = cloud.unsqueeze(0)
+                    src_path = "{}/cls_f_{}_{}_{}.gif".format(args.output_dir, idx, int(test_label), pred_label)
+                    viz_cloud(cloud, src_path=src_path)
+                    f_ind.append(i)
+                    print(f"  Failure {idx}: Index {i}, True label: {int(test_label)}, Pred: {int(pred_label)}")
+                
+                print("\nS indices: ", s_ind)
+                print("F indices: ", f_ind)
             else:
-                failure_indices_by_class[class_id].append(i)
-        
-        # FIXED: Select fixed number of successes per class (2 each = 6 total)
-        s_ind = []
-        s_class = []
-        success_per_class = args.num_success // 3  # Divide equally among 3 classes
-        
-        for class_id in [0, 1, 2]:
-            # Take first N successes for this class (consistent across runs)
-            selected = success_indices_by_class[class_id][:success_per_class]
-            for idx in selected:
-                s_ind.append(idx)
-                s_class.append(class_id)
-        
-        # FIXED: Select fixed number of failures (distributed across classes)
-        f_ind = []
-        f_class = []
-        failures_collected = 0
-        
-        for class_id in [0, 1, 2]:
-            if failures_collected >= args.num_failure:
-                break
-            # Take first available failure for this class
-            if len(failure_indices_by_class[class_id]) > 0:
-                idx = failure_indices_by_class[class_id][0]
-                f_ind.append(idx)
-                f_class.append(class_id)
-                failures_collected += 1
-        
-        # Visualize successes
-        print(f"Visualizing {len(s_ind)} successful predictions:")
-        for i, (idx, class_id) in enumerate(zip(s_ind, s_class)):
-            cloud = test_data[idx].unsqueeze(0)
-            test_label = test_labels[idx]
-            pred_label = pred_labels[idx]
-            src_path = "{}/cls_s_{}_{}_{}.gif".format(args.output_dir, i, int(test_label), pred_label)
-            viz_cloud(cloud, src_path=src_path)
-            print(f"  Success {i}: Index {idx}, True label: {int(test_label)}, Pred: {int(pred_label)}")
-        
-        # Visualize failures
-        print(f"\nVisualizing {len(f_ind)} failed predictions:")
-        for i, (idx, class_id) in enumerate(zip(f_ind, f_class)):
-            cloud = test_data[idx].unsqueeze(0)
-            test_label = test_labels[idx]
-            pred_label = pred_labels[idx]
-            src_path = "{}/cls_f_{}_{}_{}.gif".format(args.output_dir, i, int(test_label), pred_label)
-            viz_cloud(cloud, src_path=src_path)
-            print(f"  Failure {i}: Index {idx}, True label: {int(test_label)}, Pred: {int(pred_label)}")
-        
-        print("\nS indices: ", s_ind)
-        print("F indices: ", f_ind)
+                print("\nS indices: ", s_ind)
+                print("F indices: []")
+        else:
+            # Original automatic selection logic
+            success_indices_by_class = {0: [], 1: [], 2: []}  # chair, vase, lamp
+            failure_indices_by_class = {0: [], 1: [], 2: []}
+            
+            # First pass: collect all success and failure indices by class
+            for i, items in enumerate(zip(test_data, test_labels, pred_labels)):
+                cloud, test_label, pred_label = items
+                class_id = int(test_label)
+                
+                if test_label == pred_label:
+                    success_indices_by_class[class_id].append(i)
+                else:
+                    failure_indices_by_class[class_id].append(i)
+            
+            # FIXED: Select fixed number of successes per class (2 each = 6 total)
+            s_ind = []
+            s_class = []
+            success_per_class = args.num_success // 3  # Divide equally among 3 classes
+            
+            for class_id in [0, 1, 2]:
+                # Take first N successes for this class (consistent across runs)
+                selected = success_indices_by_class[class_id][:success_per_class]
+                for idx in selected:
+                    s_ind.append(idx)
+                    s_class.append(class_id)
+            
+            # FIXED: Select fixed number of failures (distributed across classes)
+            f_ind = []
+            f_class = []
+            failures_collected = 0
+            
+            if args.num_failure > 0:
+                for class_id in [0, 1, 2]:
+                    if failures_collected >= args.num_failure:
+                        break
+                    # Take first available failure for this class
+                    if len(failure_indices_by_class[class_id]) > 0:
+                        idx = failure_indices_by_class[class_id][0]
+                        f_ind.append(idx)
+                        f_class.append(class_id)
+                        failures_collected += 1
+            
+            # Visualize successes
+            print(f"Visualizing {len(s_ind)} successful predictions:")
+            for i, (idx, class_id) in enumerate(zip(s_ind, s_class)):
+                cloud = test_data[idx].unsqueeze(0)
+                test_label = test_labels[idx]
+                pred_label = pred_labels[idx]
+                src_path = "{}/cls_s_{}_{}_{}.gif".format(args.output_dir, i, int(test_label), pred_label)
+                viz_cloud(cloud, src_path=src_path)
+                print(f"  Success {i}: Index {idx}, True label: {int(test_label)}, Pred: {int(pred_label)}")
+            
+            # Visualize failures only if num_failure > 0
+            if args.num_failure > 0:
+                print(f"\nVisualizing {len(f_ind)} failed predictions:")
+                for i, (idx, class_id) in enumerate(zip(f_ind, f_class)):
+                    cloud = test_data[idx].unsqueeze(0)
+                    test_label = test_labels[idx]
+                    pred_label = pred_labels[idx]
+                    src_path = "{}/cls_f_{}_{}_{}.gif".format(args.output_dir, i, int(test_label), pred_label)
+                    viz_cloud(cloud, src_path=src_path)
+                    print(f"  Failure {i}: Index {idx}, True label: {int(test_label)}, Pred: {int(pred_label)}")
+            
+            print("\nS indices: ", s_ind)
+            print("F indices: ", f_ind)
     else:
         args.indices = args.indices.split(',') 
         for i in args.indices:
