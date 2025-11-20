@@ -1,7 +1,7 @@
 data/
 assignment5/
 */__pycache__/
-*/checkpoints
-*/logs
-*/output
+*checkpoints/
+*logs/
 __MACOSX/
+learning3dvision/
