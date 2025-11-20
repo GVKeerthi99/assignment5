@@ -61,7 +61,14 @@ def viz_seg (verts, labels, path, args):
 
     image_size=256
     background_color=(1, 1, 1)
-    colors = [[1.0,1.0,1.0], [1.0,0.0,1.0], [0.0,1.0,1.0],[1.0,1.0,0.0],[0.0,0.0,1.0], [1.0,0.0,0.0]]
+    colors = [
+        [1.0, 1.0, 1.0],  # Class 0: White (background/unlabeled)
+        [0.0, 0.0, 1.0],  # Class 1: Blue (chair)
+        [0.0, 1.0, 0.0],  # Class 2: Green (vase)
+        [1.0, 0.0, 1.0],  # Class 3: Pink (lamp)
+        [1.0, 1.0, 0.0],  # Class 4: Yellow
+        [1.0, 0.0, 0.0],  # Class 5: Red
+    ]
 
     # Construct various camera viewpoints
     dist = 3
