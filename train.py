@@ -4,7 +4,7 @@ import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
-from models import cls_model, seg_model
+from models import cls_model, seg_model, trans_cls_model, trans_seg_model
 from data_loader import get_data_loader
 from utils import save_checkpoint, create_dir
 
@@ -20,9 +20,9 @@ def train(train_dataloader, model, opt, epoch, args, writer):
         labels = labels.to(args.device).to(torch.long)
 
         # ------ TO DO: Forward Pass ------
-        predictions = 
+        predictions = model(point_clouds)
 
-        if (args.task == "seg"):
+        if (args.task == "seg" or args.task == "trans_seg"):
             labels = labels.reshape([-1])
             predictions = predictions.reshape([-1, args.num_seg_class])
             
@@ -45,7 +45,7 @@ def test(test_dataloader, model, epoch, args, writer):
     model.eval()
 
     # Evaluation in Classification Task
-    if (args.task == "cls"):
+    if (args.task == "cls" or args.task == "trans_cls"):
         correct_obj = 0
         num_obj = 0
         for batch in test_dataloader:
@@ -55,7 +55,8 @@ def test(test_dataloader, model, epoch, args, writer):
 
             # ------ TO DO: Make Predictions ------
             with torch.no_grad():
-                pred_labels = 
+                pred_labels = model(point_clouds)
+                pred_labels = torch.argmax(pred_labels, 1)
             correct_obj += pred_labels.eq(labels.data).cpu().sum().item()
             num_obj += labels.size()[0]
 
@@ -74,8 +75,8 @@ def test(test_dataloader, model, epoch, args, writer):
 
             # ------ TO DO: Make Predictions ------
             with torch.no_grad():     
-                pred_labels = 
-
+                pred_labels = model(point_clouds)
+                pred_labels = torch.argmax(pred_labels, 2)
             correct_point += pred_labels.eq(labels.data).cpu().sum().item()
             num_point += labels.view([-1,1]).size()[0]
 
@@ -99,9 +100,15 @@ def main(args):
 
     # ------ TO DO: Initialize Model ------
     if args.task == "cls":
-        model = 
+        model = cls_model()
+    elif args.task == "trans_cls":
+        model = trans_cls_model()
+    elif args.task == "trans_seg":
+        model = trans_seg_model()
     else:
-        model = 
+        model = seg_model(num_seg_classes = args.num_seg_class)
+
+    model.to(args.device)
     
     # Load Checkpoint 
     if args.load_checkpoint:
