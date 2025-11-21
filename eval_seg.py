@@ -66,7 +66,6 @@ if __name__ == '__main__':
     model.to(args.device)
     print ("successfully loaded checkpoint from {}".format(model_path))
 
-    # FIXED: Set random seed for reproducibility
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     
@@ -97,9 +96,7 @@ if __name__ == '__main__':
     total_test_accuracy = pred_labels.eq(test_labels.data).cpu().sum().item() / (test_labels.reshape((-1,1)).size()[0])
     
     if args.indices == None: 
-        # FIXED: Use hardcoded indices if --fixed_indices flag is set
         if args.fixed_indices:
-            # Hardcoded success indices
             fixed_success_indices = [562, 397, 308, 434, 490, 413]
             
             s_class = []
@@ -159,11 +156,9 @@ if __name__ == '__main__':
                 elif test_accuracy < args.f_thresh:
                     failure_cases.append((i, test_accuracy, data, test_label, pred_label))
             
-            # FIXED: Sort by accuracy for consistency and take fixed number
             success_cases.sort(key=lambda x: x[1], reverse=True)  # Best first
             failure_cases.sort(key=lambda x: x[1])  # Worst first
             
-            # Select fixed number of successes and failures
             selected_successes = success_cases[:args.num_success]
             selected_failures = failure_cases[:args.num_failure]
             
@@ -203,7 +198,6 @@ if __name__ == '__main__':
             test_label = test_labels[i]
             pred_label = pred_labels[i]
             test_accuracy = pred_label.eq(test_label.data).cpu().sum().item() / (test_label.reshape((-1,1)).size()[0])
-            # FIXED: Save both ground truth and prediction
             viz_seg(data, test_label, "{}/seg_gt_{}_{}.gif".format(args.output_dir, args.exp_name, i), args)
             viz_seg(data, pred_label, "{}/seg_pred_{}_{}.gif".format(args.output_dir, args.exp_name, i), args)
             accuracies.append(test_accuracy)

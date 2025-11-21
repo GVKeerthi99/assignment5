@@ -125,9 +125,6 @@ def viz_cloud(
     # Render multiple views
     my_images = renderer(src_cloud.extend(num_views), cameras=c)
     my_images = my_images.cpu().detach().numpy()
-
-    # --- FIX: Convert to uint8 for ImageIO ---
-    # Clip values to [0,1] and scale to [0,255]
     my_images = (my_images.clip(0, 1) * 255).astype('uint8')
 
     # Save as GIF

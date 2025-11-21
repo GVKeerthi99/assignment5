@@ -101,7 +101,6 @@ if __name__ == '__main__':
     test_accuracy = pred_labels.eq(test_labels.data).cpu().sum().item() / (test_labels.size()[0])
     
     if args.indices == None:
-        # FIXED: Use hardcoded indices if --fixed_indices flag is set
         if args.fixed_indices:
             # Hardcoded success indices (same as segmentation)
             fixed_success_indices = [562, 397, 308, 434, 490, 413]
@@ -161,7 +160,6 @@ if __name__ == '__main__':
                 else:
                     failure_indices_by_class[class_id].append(i)
             
-            # FIXED: Select fixed number of successes per class (2 each = 6 total)
             s_ind = []
             s_class = []
             success_per_class = args.num_success // 3  # Divide equally among 3 classes
@@ -173,7 +171,6 @@ if __name__ == '__main__':
                     s_ind.append(idx)
                     s_class.append(class_id)
             
-            # FIXED: Select fixed number of failures (distributed across classes)
             f_ind = []
             f_class = []
             failures_collected = 0
@@ -199,7 +196,6 @@ if __name__ == '__main__':
                 viz_cloud(cloud, src_path=src_path)
                 print(f"  Success {i}: Index {idx}, True label: {int(test_label)}, Pred: {int(pred_label)}")
             
-            # Visualize failures only if num_failure > 0
             if args.num_failure > 0:
                 print(f"\nVisualizing {len(f_ind)} failed predictions:")
                 for i, (idx, class_id) in enumerate(zip(f_ind, f_class)):
