@@ -50,11 +50,15 @@ if __name__ == '__main__':
 
     # ------ TO DO: Initialize Model for Classification Task ------
     if args.transform:
-        model = trans_cls_model()
-        model_path = './checkpoints/trans_cls/{}.pt'.format(args.load_checkpoint)
+        chosen_model = trans_cls_model()
+        checkpoint_path = './checkpoints/trans_cls/{}.pt'.format(args.load_checkpoint)
     else:
-        model = cls_model()
-        model_path = './checkpoints/cls/{}.pt'.format(args.load_checkpoint)
+        chosen_model = cls_model()
+        checkpoint_path = './checkpoints/cls/{}.pt'.format(args.load_checkpoint)
+
+    model = chosen_model
+    model_path = checkpoint_path
+
     
     # Load Model Checkpoint
     with open(model_path, 'rb') as f:
@@ -81,15 +85,16 @@ if __name__ == '__main__':
         test_data = trans.transform_points(test_data)
 
     # ------ TO DO: Make Prediction ------
-    data_loader = torch.split(test_data, args.batch_size)
-    label_loader = torch.split(test_labels, args.batch_size)
+    split_points = torch.split(test_data, args.batch_size)
+    split_labels = torch.split(test_labels, args.batch_size)
+
     test_accuracy = 0
     pred_labels = []
 
-    for data, label in zip(data_loader, label_loader):
-        pred_label =  model(data)
-        pred_label = torch.argmax(pred_label, 1)
-        pred_labels.append(pred_label)
+    for pts_batch, lbl_batch in zip(split_points, split_labels):
+        logits = model(pts_batch)
+        batch_pred = torch.argmax(logits, dim=1)
+        pred_labels.append(batch_pred)
 
     # Compute Accuracy
     pred_labels = torch.cat(pred_labels)

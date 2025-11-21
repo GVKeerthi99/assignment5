@@ -90,7 +90,7 @@ def viz_seg (verts, labels, path, args):
     point_cloud = pytorch3d.structures.Pointclouds(points=sample_verts, features=sample_colors).to(device)
 
     renderer = get_points_renderer(image_size=image_size, background_color=background_color, device=device)
-    rend = renderer(point_cloud, cameras=c).cpu().numpy() # (30, 256, 256, 3)
+    rend = renderer(point_cloud, cameras=c).cpu().numpy()
 
     rend = (rend.clip(0, 1) * 255).astype('uint8')
     imageio.mimsave(path, rend, fps=15)

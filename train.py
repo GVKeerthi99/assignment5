@@ -8,178 +8,157 @@ from models import cls_model, seg_model, trans_cls_model, trans_seg_model
 from data_loader import get_data_loader
 from utils import save_checkpoint, create_dir
 
-def train(train_dataloader, model, opt, epoch, args, writer):
-    
-    model.train()
-    step = epoch*len(train_dataloader)
-    epoch_loss = 0
 
-    for i, batch in enumerate(train_dataloader):
-        point_clouds, labels = batch
-        point_clouds = point_clouds.to(args.device)
-        labels = labels.to(args.device).to(torch.long)
+def train(loader, net, optimizer, epoch_idx, args, writer):
+
+    net.train()
+    base_step = epoch_idx * len(loader)
+    total_loss = 0
+
+    for idx, batch in enumerate(loader):
+        pts, lbl = batch
+        pts = pts.to(args.device)
+        lbl = lbl.to(args.device).long()
 
         # ------ TO DO: Forward Pass ------
-        predictions = model(point_clouds)
+        out_logits = net(pts)
+        outputs = out_logits
 
-        if (args.task == "seg" or args.task == "trans_seg"):
-            labels = labels.reshape([-1])
-            predictions = predictions.reshape([-1, args.num_seg_class])
-            
-        # Compute Loss
+        if args.task in ["seg", "trans_seg"]:
+            lbl = lbl.view(-1)
+            outputs = outputs.view(-1, args.num_seg_class)
+
         criterion = torch.nn.CrossEntropyLoss()
-        loss = criterion(predictions, labels)
-        epoch_loss += loss
+        loss_val = criterion(outputs, lbl)
+        total_loss += loss_val
 
-        # Backward and Optimize
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
+        optimizer.zero_grad()
+        loss_val.backward()
+        optimizer.step()
 
-        writer.add_scalar('train_loss', loss.item(), step+i)
+        writer.add_scalar("train_loss", loss_val.item(), base_step + idx)
 
-    return epoch_loss
+    return total_loss
 
-def test(test_dataloader, model, epoch, args, writer):
-    
-    model.eval()
 
-    # Evaluation in Classification Task
-    if (args.task == "cls" or args.task == "trans_cls"):
-        correct_obj = 0
-        num_obj = 0
-        for batch in test_dataloader:
-            point_clouds, labels = batch
-            point_clouds = point_clouds.to(args.device)
-            labels = labels.to(args.device).to(torch.long)
+def test(loader, net, epoch_idx, args, writer):
+
+    net.eval()
+
+    if args.task in ["cls", "trans_cls"]:
+        correct = 0
+        total = 0
+        for pts, lbl in loader:
+            pts = pts.to(args.device)
+            lbl = lbl.to(args.device).long()
 
             # ------ TO DO: Make Predictions ------
             with torch.no_grad():
-                pred_labels = model(point_clouds)
-                pred_labels = torch.argmax(pred_labels, 1)
-            correct_obj += pred_labels.eq(labels.data).cpu().sum().item()
-            num_obj += labels.size()[0]
+                scores = net(pts)
+                preds = scores.max(dim=1)[1]
 
-        # Compute Accuracy of Test Dataset
-        accuracy = correct_obj / num_obj
-                
-        
-    # Evaluation in Segmentation Task
+            correct += preds.eq(lbl).cpu().sum().item()
+            total += lbl.size(0)
+
+        acc = correct / total
+
     else:
-        correct_point = 0
-        num_point = 0
-        for batch in test_dataloader:
-            point_clouds, labels = batch
-            point_clouds = point_clouds.to(args.device)
-            labels = labels.to(args.device).to(torch.long)
+        correct = 0
+        total = 0
+        for pts, lbl in loader:
+            pts = pts.to(args.device)
+            lbl = lbl.to(args.device).long()
 
             # ------ TO DO: Make Predictions ------
-            with torch.no_grad():     
-                pred_labels = model(point_clouds)
-                pred_labels = torch.argmax(pred_labels, 2)
-            correct_point += pred_labels.eq(labels.data).cpu().sum().item()
-            num_point += labels.view([-1,1]).size()[0]
+            with torch.no_grad():
+                scores = net(pts)
+                preds = scores.max(dim=2)[1]
 
-        # Compute Accuracy of Test Dataset
-        accuracy = correct_point / num_point
+            correct += preds.eq(lbl).cpu().sum().item()
+            total += lbl.view(-1, 1).size(0)
 
-    writer.add_scalar("test_acc", accuracy, epoch)
-    return accuracy
+        acc = correct / total
+
+    writer.add_scalar("test_acc", acc, epoch_idx)
+    return acc
 
 
 def main(args):
-    """Loads the data, creates checkpoint and sample directories, and starts the training loop.
-    """
 
-    # Create Directories
     create_dir(args.checkpoint_dir)
     create_dir('./logs')
 
-    # Tensorboard Logger
-    writer = SummaryWriter('./logs/{0}'.format(args.task+"_"+args.exp_name))
+    writer = SummaryWriter('./logs/{}'.format(args.task + "_" + args.exp_name))
 
     # ------ TO DO: Initialize Model ------
     if args.task == "cls":
-        model = cls_model()
+        net = cls_model()
     elif args.task == "trans_cls":
-        model = trans_cls_model()
+        net = trans_cls_model()
     elif args.task == "trans_seg":
-        model = trans_seg_model()
+        net = trans_seg_model()
     else:
-        model = seg_model(num_seg_classes = args.num_seg_class)
+        net = seg_model(num_seg_classes=args.num_seg_class)
 
-    model.to(args.device)
-    
-    # Load Checkpoint 
+    net = net.to(args.device)
+
     if args.load_checkpoint:
-        model_path = "{}/{}.pt".format(args.checkpoint_dir,args.load_checkpoint)
-        with open(model_path, 'rb') as f:
+        ckpt = "{}/{}.pt".format(args.checkpoint_dir, args.load_checkpoint)
+        with open(ckpt, 'rb') as f:
             state_dict = torch.load(f, map_location=args.device)
-            model.load_state_dict(state_dict)
-        print ("successfully loaded checkpoint from {}".format(model_path))
+            net.load_state_dict(state_dict)
+        print("successfully loaded checkpoint from {}".format(ckpt))
 
-    # Optimizer
-    opt = optim.Adam(model.parameters(), args.lr, betas=(0.9, 0.999))
+    optimizer = optim.Adam(net.parameters(), args.lr, betas=(0.9, 0.999))
 
-    # Dataloader for Training & Testing
-    train_dataloader = get_data_loader(args=args, train=True)
-    test_dataloader = get_data_loader(args=args, train=False)
+    train_loader = get_data_loader(args=args, train=True)
+    test_loader = get_data_loader(args=args, train=False)
 
-    print ("successfully loaded data")
+    print("successfully loaded data")
 
     best_acc = -1
 
-    print ("======== start training for {} task ========".format(args.task))
-    print ("(check tensorboard for plots of experiment logs/{})".format(args.task+"_"+args.exp_name))
-    
-    for epoch in range(args.num_epochs):
+    print("======== start training for {} task ========".format(args.task))
+    print("(check tensorboard for plots of experiment logs/{})".format(args.task + "_" + args.exp_name))
 
-        # Train
-        train_epoch_loss = train(train_dataloader, model, opt, epoch, args, writer)
-        
-        # Test
-        current_acc = test(test_dataloader, model, epoch, args, writer)
+    for ep in range(args.num_epochs):
 
-        print ("epoch: {}   train loss: {:.4f}   test accuracy: {:.4f}".format(epoch, train_epoch_loss, current_acc))
-        
-        # Save Model Checkpoint Regularly
-        if epoch % args.checkpoint_every == 0:
-            print ("checkpoint saved at epoch {}".format(epoch))
-            save_checkpoint(epoch=epoch, model=model, args=args, best=False)
+        train_loss = train(train_loader, net, optimizer, ep, args, writer)
+        acc = test(test_loader, net, ep, args, writer)
 
-        # Save Best Model Checkpoint
-        if (current_acc >= best_acc):
-            best_acc = current_acc
-            print ("best model saved at epoch {}".format(epoch))
-            save_checkpoint(epoch=epoch, model=model, args=args, best=True)
+        print("epoch: {}   train loss: {:.4f}   test accuracy: {:.4f}".format(ep, train_loss, acc))
 
-    print ("======== training completes ========")
+        if ep % args.checkpoint_every == 0:
+            print("checkpoint saved at epoch {}".format(ep))
+            save_checkpoint(epoch=ep, model=net, args=args, best=False)
+
+        if acc >= best_acc:
+            best_acc = acc
+            print("best model saved at epoch {}".format(ep))
+            save_checkpoint(epoch=ep, model=net, args=args, best=True)
+
+    print("======== training completes ========")
 
 
 def create_parser():
-    """Creates a parser for command-line arguments.
-    """
+
     parser = argparse.ArgumentParser()
 
-    # Model & Data hyper-parameters
-    parser.add_argument('--task', type=str, default="cls", help='The task: cls or seg')
-    parser.add_argument('--num_seg_class', type=int, default=6, help='The number of segmentation classes')
+    parser.add_argument('--task', type=str, default="cls")
+    parser.add_argument('--num_seg_class', type=int, default=6)
 
-    # Training hyper-parameters
     parser.add_argument('--num_epochs', type=int, default=250)
-    parser.add_argument('--batch_size', type=int, default=32, help='The number of images in a batch.')
-    parser.add_argument('--num_workers', type=int, default=0, help='The number of threads to use for the DataLoader.')
-    parser.add_argument('--lr', type=float, default=0.001, help='The learning rate (default 0.001)')
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--lr', type=float, default=0.001)
 
-    parser.add_argument('--exp_name', type=str, default="exp", help='The name of the experiment')
+    parser.add_argument('--exp_name', type=str, default="exp")
 
-    # Directories and checkpoint/sample iterations
     parser.add_argument('--main_dir', type=str, default='./data/')
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints')
-    parser.add_argument('--checkpoint_every', type=int , default=10)
+    parser.add_argument('--checkpoint_every', type=int, default=10)
 
     parser.add_argument('--load_checkpoint', type=str, default='')
-    
 
     return parser
 
@@ -188,6 +167,6 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
     args.device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
-    args.checkpoint_dir = args.checkpoint_dir+"/"+args.task # checkpoint directory is task specific
+    args.checkpoint_dir = args.checkpoint_dir + "/" + args.task
 
     main(args)
